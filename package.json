@@ -6,7 +6,8 @@
   "files": [
     "paseo-plugin.json",
     "index.client.tsx",
-    "client/"
+    "client/",
+    "!client/*.test.ts"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
