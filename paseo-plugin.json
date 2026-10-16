@@ -1,6 +1,6 @@
 {
   "id": "context-progress",
-  "description": "Shows context usage against a 200k token limit",
+  "description": "Shows context usage against the model context window, capped at 200k tokens",
   "requirements": {
     "paseo": "^0.11.0"
   }

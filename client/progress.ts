@@ -1,105 +1,94 @@
 export const CONTEXT_LIMIT = 200_000;
-export const WARNING_THRESHOLD = 150_000;
+export const WARNING_RATIO = 0.75;
 
-export type ContextProgressLevel = "normal" | "warning" | "danger";
+export type ContextUsage = { usedTokens: number; limitTokens: number };
 
-export interface ContextProgressState {
-  usedTokens: number;
-  progress: number;
-  level: ContextProgressLevel;
-}
+export type ContextProgress =
+  | { level: "unknown" }
+  | {
+      level: "normal" | "warning" | "danger";
+      usedTokens: number;
+      limitTokens: number;
+      warningTokens: number;
+      progress: number;
+    };
 
-export type ContextUsageListener = () => void;
-
-export interface ContextUsageStore {
-  get(key: string): number | null;
-  set(key: string, value: number | null | undefined): void;
-  clear(key: string): void;
-  subscribe(key: string, listener: ContextUsageListener): () => void;
-}
-
-function normalizeUsage(value: number | null | undefined): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(value, 0) : null;
-}
-
-export function createContextUsageStore(): ContextUsageStore {
-  const values = new Map<string, number>();
-  const listeners = new Map<string, Set<ContextUsageListener>>();
-
-  function notify(key: string): void {
-    for (const listener of listeners.get(key) ?? []) {
-      listener();
-    }
+export function parseContextUsage(
+  lastUsage:
+    | { contextWindowUsedTokens?: number; contextWindowMaxTokens?: number }
+    | undefined,
+): ContextUsage | null {
+  const used = lastUsage?.contextWindowUsedTokens;
+  if (typeof used !== "number" || !Number.isFinite(used) || used < 0) {
+    return null;
   }
 
-  return {
-    get(key) {
-      return values.get(key) ?? null;
-    },
-    set(key, value) {
-      const nextValue = normalizeUsage(value);
-      const previousValue = values.get(key) ?? null;
-
-      if (previousValue === nextValue) {
-        return;
-      }
-
-      if (nextValue === null) {
-        values.delete(key);
-      } else {
-        values.set(key, nextValue);
-      }
-      notify(key);
-    },
-    clear(key) {
-      const previousValue = values.get(key) ?? null;
-      if (previousValue === null) {
-        return;
-      }
-
-      values.delete(key);
-      notify(key);
-    },
-    subscribe(key, listener) {
-      let keyListeners = listeners.get(key);
-      if (!keyListeners) {
-        keyListeners = new Set();
-        listeners.set(key, keyListeners);
-      }
-      keyListeners.add(listener);
-
-      return () => {
-        keyListeners?.delete(listener);
-        if (keyListeners?.size === 0) {
-          listeners.delete(key);
-        }
-      };
-    },
-  };
+  const max = lastUsage?.contextWindowMaxTokens;
+  const hasModelWindow = typeof max === "number" && Number.isFinite(max) && max > 0;
+  return { usedTokens: used, limitTokens: hasModelWindow ? Math.min(CONTEXT_LIMIT, max) : CONTEXT_LIMIT };
 }
 
-export const contextUsageStore = createContextUsageStore();
+export function getContextProgress(usage: ContextUsage | null): ContextProgress {
+  if (!usage) {
+    return { level: "unknown" };
+  }
 
-export function contextUsageKey(workspaceId: string, agentId: string): string {
-  return `${workspaceId}:${agentId}`;
-}
-
-export function getContextProgressState(value: number | null | undefined): ContextProgressState {
-  const usedTokens = typeof value === "number" && Number.isFinite(value) ? Math.max(value, 0) : 0;
-  const level: ContextProgressLevel =
-    usedTokens > CONTEXT_LIMIT
-      ? "danger"
-      : usedTokens > WARNING_THRESHOLD
-        ? "warning"
-        : "normal";
+  const { usedTokens, limitTokens } = usage;
+  const warningTokens = Math.round(limitTokens * WARNING_RATIO);
+  const level =
+    usedTokens > limitTokens ? "danger" : usedTokens > warningTokens ? "warning" : "normal";
 
   return {
-    usedTokens,
-    progress: Math.min(usedTokens / CONTEXT_LIMIT, 1),
     level,
+    usedTokens,
+    limitTokens,
+    warningTokens,
+    progress: Math.min(usedTokens / limitTokens, 1),
   };
 }
 
 export function formatTokenCount(value: number): string {
   return value.toLocaleString("en-GB");
 }
+
+export function formatTokensShort(value: number): string {
+  return `${Math.round(value / 1000)}k`;
+}
+
+export function createContextUsageStore() {
+  const usages = new Map<string, ContextUsage>();
+  const listeners = new Set<() => void>();
+
+  return {
+    get(agentId: string): ContextUsage | null {
+      return usages.get(agentId) ?? null;
+    },
+    set(agentId: string, usage: ContextUsage | null): void {
+      const stored = usages.get(agentId);
+      if (!usage) {
+        if (!stored) {
+          return;
+        }
+        usages.delete(agentId);
+      } else if (
+        stored?.usedTokens === usage.usedTokens &&
+        stored.limitTokens === usage.limitTokens
+      ) {
+        return;
+      } else {
+        usages.set(agentId, usage);
+      }
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+    subscribe(listener: () => void): () => void {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+export const contextUsageStore = createContextUsageStore();

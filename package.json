@@ -6,18 +6,23 @@
   "files": [
     "paseo-plugin.json",
     "index.client.tsx",
-    "client/"
+    "client/",
+    "!client/*.test.ts"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types client/progress.test.ts"
+    "test": "node --test \"client/*.test.ts\""
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.11.0",
+    "@types/node": "~24.19.2",
     "@types/react": "~19.2.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "typescript": "^5.9.3",
     "zod": "^4.4.3"
+  },
+  "engines": {
+    "node": ">=22.18"
   }
 }
