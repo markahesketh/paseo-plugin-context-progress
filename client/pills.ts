@@ -22,7 +22,7 @@ type Pill = {
 
 // The pill is meant to look like a bare ring. Hosts that reject an
 // effectively empty label are handled by retrying without one.
-const HIDDEN_PILL_LABEL = "​";
+const HIDDEN_PILL_LABEL = "\u200B";
 const RETRY_BASE_MS = 1_000;
 const RETRY_MAX_MS = 30_000;
 

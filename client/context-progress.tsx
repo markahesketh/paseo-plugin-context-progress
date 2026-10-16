@@ -11,7 +11,7 @@ import {
   formatTokensShort,
   getContextProgress,
   type ContextProgress,
-} from "./progress";
+} from "./progress.ts";
 
 const RING_SEGMENTS = 32;
 

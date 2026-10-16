@@ -4,7 +4,7 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { observeContextPills } from "./pills.ts";
 import { contextUsageStore } from "./progress.ts";
 
-const ZWSP = "​";
+const ZWSP = "\u200B";
 
 type FakeAgent = {
   id: string;

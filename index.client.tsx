@@ -1,5 +1,5 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
-import { ContextProgressIcon, ContextProgressPopover } from "./client/context-progress";
+import { ContextProgressIcon, ContextProgressPopover } from "./client/context-progress.tsx";
 import { observeContextPills } from "./client/pills.ts";
 
 export default function contribute(client: PluginClientContext) {
