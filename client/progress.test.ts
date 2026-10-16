@@ -1,52 +1,142 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
   CONTEXT_LIMIT,
   createContextUsageStore,
-  getContextProgressState,
-  WARNING_THRESHOLD,
+  formatTokensShort,
+  getContextProgress,
+  parseContextUsage,
 } from "./progress.ts";
 
-function assert(condition: boolean, message: string): void {
-  if (!condition) {
-    throw new Error(message);
-  }
-}
+const usage = (usedTokens: number, limitTokens = CONTEXT_LIMIT) => ({ usedTokens, limitTokens });
 
-const normal = getContextProgressState(WARNING_THRESHOLD);
-assert(normal.level === "normal", "150,000 tokens must remain normal");
-assert(normal.progress === 0.75, "150,000 tokens must be 75% of the limit");
+describe("getContextProgress", () => {
+  it("is unknown without usage", () => {
+    assert.deepEqual(getContextProgress(null), { level: "unknown" });
+  });
 
-const warning = getContextProgressState(WARNING_THRESHOLD + 1);
-assert(warning.level === "warning", "Values over 150,000 tokens must be yellow");
+  it("changes level just past 150k and 200k", () => {
+    const levels = [150_000, 150_001, 200_000, 200_001].map(
+      (used) => getContextProgress(usage(used)).level,
+    );
+    assert.deepEqual(levels, ["normal", "warning", "warning", "danger"]);
+  });
 
-const limit = getContextProgressState(CONTEXT_LIMIT);
-assert(limit.level === "warning", "Exactly 200,000 tokens must not be red");
-assert(limit.progress === 1, "The ring must be full at the limit");
+  it("clamps progress at 1", () => {
+    const over = getContextProgress(usage(250_000));
+    assert.equal(over.level === "unknown" ? 0 : over.progress, 1);
+  });
 
-const danger = getContextProgressState(CONTEXT_LIMIT + 1);
-assert(danger.level === "danger", "Values over 200,000 tokens must be red");
-assert(danger.progress === 1, "The ring must stay full over the limit");
-
-const missing = getContextProgressState(undefined);
-assert(missing.usedTokens === 0 && missing.progress === 0, "Missing usage must show an empty ring");
-
-const store = createContextUsageStore();
-const key = "workspace-1:agent-1";
-let notifications = 0;
-const unsubscribe = store.subscribe(key, () => {
-  notifications += 1;
+  it("derives the warning threshold from the limit", () => {
+    const progress = getContextProgress(usage(100_000, 128_000));
+    assert.deepEqual(progress, {
+      level: "warning",
+      usedTokens: 100_000,
+      limitTokens: 128_000,
+      warningTokens: 96_000,
+      progress: 0.78125,
+    });
+  });
 });
 
-store.set(key, 200_001);
-assert(store.get(key) === 200_001, "The store must publish the latest usage snapshot");
-assert(notifications === 1, "A new usage snapshot must notify subscribers");
+describe("parseContextUsage", () => {
+  it("rejects missing, negative and non-finite used tokens", () => {
+    for (const used of [undefined, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.equal(parseContextUsage({ contextWindowUsedTokens: used }), null);
+    }
+    assert.equal(parseContextUsage(undefined), null);
+  });
 
-store.set(key, 200_001);
-assert(notifications === 1, "An unchanged usage snapshot must not notify subscribers");
+  it("uses the model window when it is smaller than the cap", () => {
+    assert.deepEqual(
+      parseContextUsage({ contextWindowUsedTokens: 10, contextWindowMaxTokens: 128_000 }),
+      usage(10, 128_000),
+    );
+  });
 
-store.set(key, 58_048);
-assert(store.get(key) === 58_048, "A later snapshot must replace an earlier usage value");
-assert(notifications === 2, "A changed usage snapshot must notify subscribers");
+  it("caps a larger model window at the limit", () => {
+    assert.deepEqual(
+      parseContextUsage({ contextWindowUsedTokens: 10, contextWindowMaxTokens: 1_000_000 }),
+      usage(10),
+    );
+  });
 
-unsubscribe();
-store.clear(key);
-assert(store.get(key) === null, "Clearing an agent must remove its usage snapshot");
+  it("falls back to the cap when the window is missing or invalid", () => {
+    for (const max of [undefined, 0, -5, Number.NaN]) {
+      assert.deepEqual(
+        parseContextUsage({ contextWindowUsedTokens: 10, contextWindowMaxTokens: max }),
+        usage(10),
+      );
+    }
+  });
+});
+
+describe("formatTokensShort", () => {
+  it("rounds to whole thousands", () => {
+    assert.deepEqual([200_000, 150_000, 128_000, 96_000].map(formatTokensShort), [
+      "200k",
+      "150k",
+      "128k",
+      "96k",
+    ]);
+  });
+});
+
+describe("context usage store", () => {
+  it("notifies on change and publishes the new value", () => {
+    const store = createContextUsageStore();
+    let notifications = 0;
+    store.subscribe(() => {
+      notifications += 1;
+    });
+
+    store.set("a", usage(1));
+    store.set("a", usage(2));
+
+    assert.deepEqual(store.get("a"), usage(2));
+    assert.equal(notifications, 2);
+  });
+
+  it("ignores a field-equal value and keeps the stored identity", () => {
+    const store = createContextUsageStore();
+    const first = usage(1);
+    store.set("a", first);
+    let notifications = 0;
+    store.subscribe(() => {
+      notifications += 1;
+    });
+
+    store.set("a", usage(1));
+
+    assert.equal(notifications, 0);
+    assert.equal(store.get("a"), first);
+  });
+
+  it("stops notifying after unsubscribe", () => {
+    const store = createContextUsageStore();
+    let notifications = 0;
+    const unsubscribe = store.subscribe(() => {
+      notifications += 1;
+    });
+
+    unsubscribe();
+    store.set("a", usage(1));
+
+    assert.equal(notifications, 0);
+  });
+
+  it("removes an agent when set to null, notifying once", () => {
+    const store = createContextUsageStore();
+    store.set("a", usage(1));
+    let notifications = 0;
+    store.subscribe(() => {
+      notifications += 1;
+    });
+
+    store.set("a", null);
+    store.set("a", null);
+
+    assert.equal(store.get("a"), null);
+    assert.equal(notifications, 1);
+  });
+});

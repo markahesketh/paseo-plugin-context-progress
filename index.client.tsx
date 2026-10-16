@@ -3,12 +3,12 @@ import type {
   PluginClientContext,
 } from "@getpaseo/plugin/client";
 import { ContextProgressIcon, ContextProgressPopover } from "./client/context-progress";
-import { contextUsageKey, contextUsageStore } from "./client/progress";
+import { contextUsageStore, parseContextUsage } from "./client/progress";
 
 type AgentReference = {
   id: string;
   workspaceId?: string | null;
-  lastUsage?: { contextWindowUsedTokens?: number };
+  lastUsage?: { contextWindowUsedTokens?: number; contextWindowMaxTokens?: number };
   archivedAt?: string | null;
 };
 
@@ -22,7 +22,7 @@ export default function contribute(client: PluginClientContext) {
   function removePill(agentId: string): void {
     const existing = pills.get(agentId);
     if (existing) {
-      contextUsageStore.clear(contextUsageKey(existing.workspaceId, agentId));
+      contextUsageStore.set(agentId, null);
       existing.registration.remove();
     }
     pills.delete(agentId);
@@ -34,10 +34,7 @@ export default function contribute(client: PluginClientContext) {
       return;
     }
 
-    contextUsageStore.set(
-      contextUsageKey(agent.workspaceId, agent.id),
-      agent.lastUsage?.contextWindowUsedTokens,
-    );
+    contextUsageStore.set(agent.id, parseContextUsage(agent.lastUsage));
 
     const existing = pills.get(agent.id);
     if (existing?.workspaceId === agent.workspaceId) {

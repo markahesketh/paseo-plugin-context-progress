@@ -2,39 +2,49 @@ import type {
   PluginButtonContentProps,
   PluginButtonIconProps,
 } from "@getpaseo/plugin/client";
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useSyncExternalStore } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
   CONTEXT_LIMIT,
-  contextUsageKey,
   contextUsageStore,
-  getContextProgressState,
   formatTokenCount,
-  type ContextProgressState,
+  formatTokensShort,
+  getContextProgress,
+  type ContextProgress,
 } from "./progress";
 
 const RING_SEGMENTS = 32;
 
-function useContextUsage(workspaceId: string, agentId: string): number | null {
-  const key = contextUsageKey(workspaceId, agentId);
-  const [usage, setUsage] = useState<number | null>(() => contextUsageStore.get(key));
+const styles = StyleSheet.create({
+  title: { fontSize: 16, fontWeight: "600" },
+  value: { fontSize: 14 },
+  detail: { fontSize: 12 },
+  button: {
+    alignSelf: "flex-start",
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+  },
+  buttonText: { fontSize: 12 },
+});
 
-  useEffect(() => {
-    const removeSubscription = contextUsageStore.subscribe(key, () => {
-      setUsage(contextUsageStore.get(key));
-    });
-    setUsage(contextUsageStore.get(key));
-
-    return () => {
-      removeSubscription();
-    };
-  }, [key]);
-
-  return usage;
+function useContextProgress(agentId: string): ContextProgress {
+  return getContextProgress(
+    useSyncExternalStore(contextUsageStore.subscribe, () => contextUsageStore.get(agentId)),
+  );
 }
 
-function progressStateForUsage(usage: number | null): ContextProgressState {
-  return getContextProgressState(usage);
+type Theme = PluginButtonIconProps["theme"];
+
+function levelColor(progress: ContextProgress, theme: Theme, normalColor: string): string {
+  switch (progress.level) {
+    case "danger":
+      return theme.colors.statusDanger;
+    case "warning":
+      return theme.colors.statusWarning;
+    default:
+      return normalColor;
+  }
 }
 
 function ContextRing({
@@ -84,26 +94,18 @@ function ContextRing({
 }
 
 function AgentContextProgressIcon({
-  workspaceId,
   agentId,
   size,
   color,
   theme,
 }: Extract<PluginButtonIconProps, { context: "agent" }>) {
-  const usage = useContextUsage(workspaceId, agentId);
-  const state = progressStateForUsage(usage);
-  const progressColor =
-    state.level === "danger"
-      ? theme.colors.statusDanger
-      : state.level === "warning"
-        ? theme.colors.statusWarning
-        : color;
+  const progress = useContextProgress(agentId);
 
   return (
     <ContextRing
       size={size}
-      progress={state.progress}
-      color={progressColor}
+      progress={progress.level === "unknown" ? 0 : progress.progress}
+      color={levelColor(progress, theme, color)}
       trackColor={theme.colors.border}
     />
   );
@@ -117,59 +119,53 @@ export function ContextProgressIcon(props: PluginButtonIconProps) {
   return <AgentContextProgressIcon {...props} />;
 }
 
+function usageDetail(progress: Exclude<ContextProgress, { level: "unknown" }>): string {
+  const limit = formatTokensShort(progress.limitTokens);
+  const warning = formatTokensShort(progress.warningTokens);
+  const source = progress.limitTokens < CONTEXT_LIMIT ? " (the model's context window)" : "";
+
+  switch (progress.level) {
+    case "danger":
+      return `Over the ${limit} limit${source}`;
+    case "warning":
+      return `Over the ${warning} warning level`;
+    case "normal":
+      return `Warning at ${warning}; limit at ${limit}${source}`;
+  }
+}
+
 function AgentContextProgressPopover({
-  workspaceId,
   agentId,
   theme,
   layout,
   close,
 }: Extract<PluginButtonContentProps, { context: "agent" }>) {
-  const usage = useContextUsage(workspaceId, agentId);
-  const state = progressStateForUsage(usage);
-  const progressColor =
-    state.level === "danger"
-      ? theme.colors.statusDanger
-      : state.level === "warning"
-        ? theme.colors.statusWarning
-        : theme.colors.foreground;
-  const styles = useMemo(
-    () => ({
-      body: { gap: layout.compact ? 8 : 10 },
-      title: { color: theme.colors.foreground, fontSize: 16, fontWeight: "600" as const },
-      value: { color: progressColor, fontSize: 14 },
-      detail: { color: theme.colors.foregroundMuted, fontSize: 12 },
-      button: {
-        alignSelf: "flex-start" as const,
-        paddingVertical: 7,
-        paddingHorizontal: 10,
-        borderRadius: 6,
-        backgroundColor: theme.colors.surface2,
-      },
-      buttonText: { color: theme.colors.foreground, fontSize: 12 },
-    }),
-    [layout.compact, progressColor, theme],
-  );
+  const progress = useContextProgress(agentId);
+  const { foreground, foregroundMuted, surface2 } = theme.colors;
 
   return (
-    <View style={styles.body}>
-      <Text style={styles.title}>Context usage</Text>
-      <Text style={styles.value}>
-        {formatTokenCount(state.usedTokens)} / {formatTokenCount(CONTEXT_LIMIT)} tokens
-      </Text>
-      <Text style={styles.detail}>
-        {state.level === "danger"
-          ? "Over the 200k limit"
-          : state.level === "warning"
-            ? "Over the 150k warning level"
-            : "Warning at 150k; limit at 200k"}
-      </Text>
+    <View style={{ gap: layout.compact ? 8 : 10 }}>
+      {layout.compact ? null : (
+        <Text style={[styles.title, { color: foreground }]}>Context usage</Text>
+      )}
+      {progress.level === "unknown" ? (
+        <Text style={[styles.value, { color: foreground }]}>No usage reported yet</Text>
+      ) : (
+        <>
+          <Text style={[styles.value, { color: levelColor(progress, theme, foreground) }]}>
+            {formatTokenCount(progress.usedTokens)} / {formatTokenCount(progress.limitTokens)}{" "}
+            tokens
+          </Text>
+          <Text style={[styles.detail, { color: foregroundMuted }]}>{usageDetail(progress)}</Text>
+        </>
+      )}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Close context usage"
         onPress={close}
-        style={styles.button}
+        style={[styles.button, { backgroundColor: surface2 }]}
       >
-        <Text style={styles.buttonText}>Done</Text>
+        <Text style={[styles.buttonText, { color: foreground }]}>Done</Text>
       </Pressable>
     </View>
   );
