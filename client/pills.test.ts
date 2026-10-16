@@ -4,8 +4,6 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { observeContextPills } from "./pills.ts";
 import { contextUsageStore } from "./progress.ts";
 
-const ZWSP = "\u200B";
-
 type FakeAgent = {
   id: string;
   workspaceId?: string | null;
@@ -44,7 +42,6 @@ function createHarness() {
   const listOptions: Array<{ signal: AbortSignal }> = [];
   const observers: Observer[] = [];
   const listFailures: unknown[] = [];
-  let released = 0;
   let rejectPill: (contribution: Contribution) => boolean = () => false;
 
   const client = {
@@ -74,10 +71,7 @@ function createHarness() {
                 observers.push(observer);
                 return () => {};
               },
-              release() {
-                released += 1;
-                return Promise.resolve();
-              },
+              release: () => Promise.resolve(),
             },
           };
         },
@@ -90,9 +84,6 @@ function createHarness() {
     registrations,
     listOptions,
     listFailures,
-    get released() {
-      return released;
-    },
     get observer() {
       const observer = observers.at(-1);
       assert.ok(observer, "list has not resolved a subscription");
@@ -215,17 +206,6 @@ describe("observeContextPills", () => {
     stop();
   });
 
-  it("falls back to a label-less pill when the host rejects the hidden label", async () => {
-    const { harness, stop } = await observe();
-    harness.rejectPillsWhere((c) => c.button.label === ZWSP);
-
-    harness.snapshot([agent("a")]);
-
-    assert.equal(harness.live().length, 1);
-    assert.equal("label" in (harness.registrations[0]?.contribution.button ?? {}), false);
-    stop();
-  });
-
   it("skips an agent whose pill cannot be added without stopping the others", async () => {
     const { harness, stop } = await observe();
     harness.rejectPillsWhere((c) => c.agentId === "bad");
@@ -240,14 +220,13 @@ describe("observeContextPills", () => {
     stop();
   });
 
-  it("clears pills and releases the subscription when the observer errors", async () => {
+  it("clears pills when the observer errors", async () => {
     const { harness, stop } = await observe();
     harness.snapshot([agent("a")]);
 
     harness.observer.error?.(new Error("connection lost"));
 
     assert.equal(harness.live().length, 0);
-    assert.equal(harness.released, 1);
     stop();
   });
 

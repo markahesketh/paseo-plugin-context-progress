@@ -20,8 +20,6 @@ type Pill = {
   registration: PluginButtonRegistration;
 };
 
-// The pill is meant to look like a bare ring. Hosts that reject an
-// effectively empty label are handled by retrying without one.
 const HIDDEN_PILL_LABEL = "\u200B";
 const RETRY_BASE_MS = 1_000;
 const RETRY_MAX_MS = 30_000;
@@ -54,21 +52,17 @@ export function observeContextPills(
   }
 
   function addPill(agentId: string, workspaceId: string, title: string) {
-    let lastError: unknown;
-    for (const label of [{ label: HIDDEN_PILL_LABEL }, {}]) {
-      try {
-        return client.addComposerPill({
-          id: "context-progress",
-          workspaceId,
-          agentId,
-          button: { ...button, title, ...label },
-        });
-      } catch (error) {
-        lastError = error;
-      }
+    try {
+      return client.addComposerPill({
+        id: "context-progress",
+        workspaceId,
+        agentId,
+        button: { ...button, title, label: HIDDEN_PILL_LABEL },
+      });
+    } catch (error) {
+      console.error(`Context progress could not add a pill for agent ${agentId}`, error);
+      return null;
     }
-    console.error(`Context progress could not add a pill for agent ${agentId}`, lastError);
-    return null;
   }
 
   function syncAgent(agent: Agent): void {
@@ -106,15 +100,12 @@ export function observeContextPills(
   function observe(): void {
     let failed = false;
 
-    function fail(error: unknown, subscription?: { release(): Promise<void> }): void {
+    function fail(error: unknown): void {
       if (failed || lifetime.signal.aborted) {
         return;
       }
       failed = true;
       console.error("Context progress agent observation failed", error);
-      subscription?.release().catch((releaseError) => {
-        console.error("Context progress could not release its subscription", releaseError);
-      });
       removeAllPills();
 
       const delay = Math.min(RETRY_BASE_MS * 2 ** failures, RETRY_MAX_MS);
@@ -157,7 +148,7 @@ export function observeContextPills(
               syncAgent(update.agent);
             }
           },
-          error: (error) => fail(error, subscription),
+          error: fail,
         });
       })
       .catch((error) => fail(error));
