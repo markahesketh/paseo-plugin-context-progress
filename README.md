@@ -11,7 +11,7 @@ plugin's agent subscription. The ring is registered as a custom composer-pill ic
 token-count popover when pressed. The ring and popover share the same keyed snapshot store, so
 opening the popover cannot replace a live value with a stale one-time refresh.
 
-Paseo 0.10.2 places plugin composer pills in the track row above the composer. Paseo does not expose
+Paseo 0.11.x places plugin composer pills in the track row above the composer. Paseo does not expose
 a plugin slot beside the built-in context meter inside the composer input, so exact left-of-meter
 placement is not possible through the public plugin API.
 

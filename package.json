@@ -13,7 +13,7 @@
     "test": "node --experimental-strip-types client/progress.test.ts"
   },
   "devDependencies": {
-    "@getpaseo/plugin": "0.10.2",
+    "@getpaseo/plugin": "0.11.0",
     "@types/react": "~19.2.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
