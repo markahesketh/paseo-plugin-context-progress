@@ -17,9 +17,9 @@ popover share one store keyed by agent id, so opening the popover cannot replace
 stale one-time refresh. If the subscription fails, the pills are removed and the plugin resubscribes
 with exponential backoff (1s up to 30s).
 
-Paseo 0.11.x places plugin composer pills in the track row above the composer. Paseo does not expose
-a plugin slot beside the built-in context meter inside the composer input, so exact left-of-meter
-placement is not possible through the public plugin API.
+Composer pills appear in each agent's composer track alongside Tasks and Subagents. The plugin API
+does not expose a slot beside the built-in context meter inside the composer input, so the pill
+cannot sit directly beside the meter.
 
 ## Development
 
